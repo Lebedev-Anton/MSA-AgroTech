@@ -1,0 +1,22 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+Person(operator, "Оператор фермы", "Дежурный сотрудник на месте")
+Person(office_user, "Пользователь\Сотрудник офиса", "Пользователь центрального сервера")
+
+System(central, "Центральный сервер (Cloud)", "Агрегация данных, видеоаналитика, управление IoT")
+
+System_Boundary(farm, "Ферма N") {
+    System(thin_gateway, "Тонкий шлюз (Gateway)", "Передача видеопотока и телеметрии, приём команд")
+    System(iot_controllers, "Контроллеры IoT", "Управление кормушками, поилками, фильтрацией воды")
+    System(stockroom, "Управление складом", "Сбор складских заказов")
+}
+
+Rel(operator, central, "Получает уведомления и управляет")
+Rel(thin_gateway, central, "Передаёт видеопоток и телеметрию")
+Rel(central, iot_controllers, "Отправляет команды управления")
+Rel(central, stockroom, "Опрашивает метрики")
+
+Rel(central, office_user, "Предоставляет панель управления и отчёты, HTTPS")
+
+@enduml
