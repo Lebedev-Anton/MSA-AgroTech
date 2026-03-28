@@ -1,0 +1,88 @@
+@startuml
+title C4 Диаграмма кода: Реализация Farm Service (Kotlin/Spring)
+
+package "Farm Manager Module" {
+    
+    class FarmController <<RestController>> {
+        + createFarm(request: FarmDto): ResponseEntity<FarmDto>
+        + updateFarm(id: UUID, request: FarmDto): ResponseEntity<FarmDto>
+        + getFarm(id: UUID): ResponseEntity<FarmDto>
+        + deleteFarm(id: UUID): ResponseEntity<Void>
+    }
+
+    interface FarmServiceInterface <<Interface>> {
+        + createFarm(dto: FarmDto): Farm
+        + updateFarm(id: UUID, dto: FarmDto): Farm
+        + getFarmById(id: UUID): Farm
+        + deleteFarm(id: UUID): Boolean
+        + assignAgent(farmId: UUID, agentId: UUID): Farm
+    }
+
+    class FarmServiceImpl {
+        - farmRepository: FarmRepository
+        - agentRepository: AgentRepository
+        - eventPublisher: EventPublisher
+        + createFarm(dto: FarmDto): Farm
+        + updateFarm(id: UUID, dto: FarmDto): Farm
+        - validateFarmLimit(userId: UUID): Boolean
+        + assignAgent(farmId: UUID, agentId: UUID): Farm
+    }
+    
+    class Farm {
+        - id: UUID
+        - name: String
+        - location: String
+        - ownerId: UUID
+        - status: FarmStatus
+        + addAgent(agent: Agent): void
+        + changeStatus(status: FarmStatus): void
+    }
+    
+    enum FarmStatus {
+        ACTIVE
+        SUSPENDED
+        DELETED
+    }
+    
+    class FarmRepository <<Interface>> {
+        + findById(id: UUID): Optional<Farm>
+        + findByOwnerId(ownerId: UUID): List<Farm>
+        + existsByNameAndOwnerId(name: String, ownerId: UUID): Boolean
+    }
+    
+    class EventPublisher <<Component>> {
+        + publishFarmCreated(farm: Farm): void
+        + publishFarmUpdated(farm: Farm): void
+        + publishFarmDeleted(farmId: UUID): void
+    }
+    
+    class KafkaProducerConfig <<Configuration>> {
+        + farmEventProducer(): ProducerFactory
+    }
+    
+}
+
+' Relationships
+FarmController --> FarmServiceInterface : uses
+FarmServiceImpl ..|> FarmServiceInterface : implements
+FarmServiceImpl --> FarmRepository : uses
+FarmServiceImpl --> EventPublisher : uses
+FarmServiceImpl --> Farm : creates/updates
+FarmRepository ..> Farm : works with
+EventPublisher --> KafkaProducerConfig : uses
+Farm "1" *-- "0..*" Agent : contains
+
+note top of FarmServiceImpl
+    Содержит бизнес-логику:
+    - Проверка лимитов ферм
+    - Транзакционное сохранение
+    - Вызов событий аудита
+end note
+
+note right of EventPublisher
+    Публикует события в Kafka
+    (Topic: farm-events)
+    для синхронизации с Edge
+end note
+
+@enduml

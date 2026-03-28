@@ -1,0 +1,142 @@
+@startuml
+title C4 Диаграмма кода: Реализация Orchestration Engine (Python)
+
+package "Agent Orchestrator" {
+    
+    ' === API Layer ===
+    class FastAPIApp <<FastAPI>> {
+        + POST /api/v1/feed
+        + POST /api/v1/water
+        + GET /api/v1/status
+        + POST /api/v1/schedule
+    }
+    
+    ' === Core Orchestration ===
+    interface OrchestrationInterface <<Protocol>> {
+        + execute_feeding_cycle(farm_id: str, schedule_id: str): FeedingResult
+        + execute_watering_cycle(farm_id: str): WateringResult
+        + get_farm_status(farm_id: str): FarmStatus
+        + process_alert(alert: Alert): None
+    }
+    
+    class OrchestrationEngine {
+        - config_cache: RedisClient
+        - iot_executor: IoTCommandExecutor
+        - video_manager: VideoStreamManager
+        - alert_dispatcher: AlertDispatcher
+        - state_machine: FarmStateMachine
+        + execute_feeding_cycle(farm_id, schedule_id): FeedingResult
+        + execute_watering_cycle(farm_id): WateringResult
+        - _check_stock_before_feeding(farm_id): bool
+        - _apply_water_treatment(farm_id): None
+        + process_alert(alert): None
+    }
+    
+    ' === Supporting Components ===
+    class IoTCommandExecutor {
+        + send_feed_command(actuator_id: str, amount_kg: float): CommandResult
+        + send_water_command(actuator_id: str, duration_sec: int): CommandResult
+        + read_sensor_data(sensor_id: str): SensorReading
+        - _mqtt_client: MQTTClient
+    }
+    
+    class VideoStreamManager {
+        + start_stream(camera_id: str): StreamHandle
+        + stop_stream(handle: StreamHandle): None
+        + send_frame_to_analytics(frame: np.ndarray): DetectionResult
+        - _camera_pool: Dict[str, cv2.VideoCapture]
+    }
+    
+    class AlertDispatcher {
+        + dispatch_critical_alert(alert: Alert): None
+        + dispatch_warning(alert: Alert): None
+        + get_active_alerts(): List[Alert]
+        - _alert_buffer: List[Alert]
+    }
+    
+    class FarmStateMachine {
+        - _current_state: FarmMode
+        + transition_to(mode: FarmMode): None
+        + can_execute_feeding(): bool
+        + get_state(): FarmMode
+    }
+    
+    enum FarmMode {
+        NORMAL
+        MAINTENANCE
+        EMERGENCY
+        CLEANING
+    }
+    
+    ' === Data Models ===
+    class FeedingResult {
+        + success: bool
+        + amount_dispensed: float
+        + timestamp: datetime
+        + error_message: Optional[str]
+    }
+    
+    class Alert {
+        + alert_id: str
+        + severity: AlertSeverity
+        + source: str
+        + message: str
+        + timestamp: datetime
+    }
+    
+    enum AlertSeverity {
+        CRITICAL
+        HIGH
+        MEDIUM
+        LOW
+        INFO
+    }
+    
+    class Config {
+        + farm_id: str
+        + feeding_schedule: List[FeedingSchedule]
+        + alert_thresholds: AlertThresholds
+        + camera_configs: List[CameraConfig]
+    }
+}
+
+' === Relationships ===
+FastAPIApp --> OrchestrationEngine : calls
+OrchestrationEngine ..|> OrchestrationInterface : implements
+
+OrchestrationEngine *-- IoTCommandExecutor : composition
+OrchestrationEngine *-- VideoStreamManager : composition
+OrchestrationEngine *-- AlertDispatcher : composition
+OrchestrationEngine *-- FarmStateMachine : composition
+OrchestrationEngine --> RedisClient : uses (cache)
+
+IoTCommandExecutor --> MQTTClient : uses
+VideoStreamManager --> cv2.VideoCapture : uses
+
+OrchestrationEngine ..> FeedingResult : creates
+OrchestrationEngine ..> Alert : creates/dispatches
+OrchestrationEngine ..> Config : reads from cache
+
+note top of OrchestrationEngine
+    Центральный компонент бизнес-логики на Edge:
+    - Координирует IoT, видеоаналитику и оповещения
+    - Проверяет наличие корма перед выдачей
+    - Учитывает состояние фермы (NORMAL/MAINTENANCE)
+    - Работает даже при потере связи с Cloud
+end note
+
+note bottom of IoTCommandExecutor
+    Адаптер для физических устройств:
+    - Modbus RTU/TCP для кормушек/поилок
+    - MQTT для обратной связи
+    - Поддержка очереди команд при потере связи
+end note
+
+note right of AlertDispatcher
+    Маршрутизация оповещений:
+    - CRITICAL → Local Alert Service (сирена/SMS)
+    - HIGH/Medium → Логирование + Dashboard
+    - Без Cloud-соединения работает автономно
+end note
+
+@enduml

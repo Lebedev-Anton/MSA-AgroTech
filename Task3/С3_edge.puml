@@ -1,0 +1,68 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+
+title C3 Диаграмма: Компоненты Agent Orchestrator (Edge)
+
+' === Внешние системы на Edge ===
+System_Ext(edge_gateway, "Edge Gateway", "Nginx")
+System_Ext(video_analytics_engine, "Video Analytics Engine", "Python + PyTorch")
+System_Ext(iot_adapter, "IoT Adapter", "Python")
+System_Ext(sync_service, "Sync Service", "Python")
+System_Ext(local_alert_service, "Local Alert Service", "Python")
+System_Ext(stockroom_system, "Складская система", "REST/1C API")
+System_Ext(event_store, "Kafka", "Kafka")
+
+' === Внешние физические устройства ===
+System_Ext(ip_cameras, "IP Cameras", "RTSP")
+System_Ext(feeders, "Кормушки", "Modbus/MQTT")
+System_Ext(drinkers, "Поилки", "Modbus/MQTT")
+System_Ext(water_sensors, "Датчики воды", "OPC UA/Modbus")
+
+' === Компоненты Agent Orchestrator ===
+System_Boundary(agent_orchestrator, "Agent Orchestrator (Python)") {
+    
+    Component(http_api, "HTTP API Layer", "FastAPI", "Принимает команды от Edge Gateway, REST endpoints")
+    Component(grpc_client, "gRPC Client", "gRPC", "Взаимодействие с Sync Service для синхронизации")
+    
+    Component(orchestration_engine, "Orchestration Engine", "Python", "Центральная бизнес-логика, управление workflow")
+    
+    Component(video_manager, "Video Stream Manager", "Python/OpenCV", "Управление видеопотоками, передача кадров в Analytics Engine")
+    Component(iot_command_executor, "IoT Command Executor", "Python", "Отправка команд на IoT адаптер")
+    Component(alert_dispatcher, "Alert Dispatcher", "Python", "Маршрутизация оповещений в Local Alert Service")
+    Component(stockroom_client, "Stockroom Client", "Python/Requests", "HTTP клиент для склада")
+    
+    Component(cache, "Local Cache", "Redis", "Кэширование конфигураций и состояний")
+    Component(state_machine, "Farm State Machine", "Python", "Управление состоянием фермы (feeding/cleaning/maintenance)")
+}
+
+' === Связи внутри Agent Orchestrator ===
+Rel(edge_gateway, http_api, "HTTP POST/GET", "JSON")
+Rel(sync_service, grpc_client, "gRPC", "SyncConfigs, SendMetrics")
+Rel(grpc_client, orchestration_engine, "передаёт конфигурации")
+
+Rel(http_api, orchestration_engine, "вызывает команды")
+
+Rel(orchestration_engine, video_manager, "запускает/останавливает потоки")
+Rel(orchestration_engine, iot_command_executor, "отправляет команды кормления/поения")
+Rel(orchestration_engine, alert_dispatcher, "передаёт события")
+Rel(orchestration_engine, stockroom_client, "запрашивает остатки")
+Rel(orchestration_engine, state_machine, "изменяет состояние")
+Rel(orchestration_engine, cache, "читает/пишет")
+
+' === Связи с внешними системами ===
+Rel(video_manager, video_analytics_engine, "отправляет кадры", "gRPC/ZeroMQ")
+Rel(video_analytics_engine, video_manager, "возвращает события", "gRPC")
+
+Rel(iot_command_executor, iot_adapter, "MQTT команды", "MQTT")
+Rel(iot_adapter, feeders, "Modbus TCP")
+Rel(iot_adapter, drinkers, "Modbus TCP")
+Rel(iot_adapter, water_sensors, "OPC UA")
+
+Rel(alert_dispatcher, local_alert_service, "HTTP/gRPC", "Alert Payload")
+Rel(stockroom_client, stockroom_system, "REST", "GET /stocks")
+
+' === Связь с центральным сервером (уже была, но для контекста) ===
+Rel(sync_service, event_store, "синхронизация", "gRPC/Kafka", "Интернет")
+
+@enduml
