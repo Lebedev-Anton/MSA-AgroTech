@@ -1,0 +1,72 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' === Центральный сервер (Cloud) — весь функционал ===
+System_Boundary(cloud, "Центральный сервер (Cloud)") {
+    Container(api_gateway, "API Gateway", "Kong/Nginx", "Маршрутизация, аутентификация, rate limiting")
+    Container(auth_service, "Auth Service", "Keycloak/Spring Security", "Управление ролями, OAuth2/JWT")
+    
+    Container_Boundary(core_services, "Core Services") {
+        Container(farm_manager, "Farm Manager", "Kotlin/Spring Boot", "Управление фермами, конфигурация")
+        Container(analytics_aggregator, "Analytics Aggregator", "Kotlin/Spring Boot", "Агрегация метрик, формирование отчётов")
+        Container(video_analytics_engine, "Video Analytics Engine", "Python + PyTorch", "Анализ видеопотока, детекция событий (cloud)")
+        Container(iot_controller, "IoT Controller", "Kotlin/Spring Boot", "Управление IoT устройствами, адаптация протоколов")
+        Container(alert_manager, "Alert Manager", "Kotlin/Spring Boot", "Централизованное управление оповещениями")
+    }
+    
+    ContainerDb(central_db, "Central Database", "PostgreSQL", "Фермы, пользователи, роли, конфигурации")
+    ContainerDb(central_metric_db, "Metrics", "ClickHouse", "Метрики со всех ферм")
+    ContainerDb(video_storage, "Video Storage", "MinIO/S3", "Хранение видеозаписей для аудита")
+    
+    Container(event_store, "Event Store", "Kafka", "Поток событий, аудит, обработка")
+    Container(notification_gateway, "Notification Gateway", "Kotlin/Spring Boot", "Отправка уведомлений (push/SMS/email)")
+}
+
+' === Ферма N (Thin Gateway) ===
+System_Boundary(farm, "Ферма N (Thin Gateway)") {
+    Container(thin_gateway, "Thin Gateway", "Python", "Маршрутизация видеопотоков и телеметрии, буферизация при обрыве связи")
+    
+    Container_Ext(ip_cameras, "IP Cameras", "RTSP/H.264", "Видеонаблюдение")
+    Container_Ext(feeders, "Кормушки", "Modbus/MQTT", "Управление кормлением")
+    Container_Ext(drinkers, "Поилки", "Modbus/MQTT", "Управление поением")
+    Container_Ext(water_sensors, "Датчики воды", "Modbus/OPC UA", "Мониторинг фильтрации")
+    Container_Ext(stockroom_system, "Складская система", "REST/1C API", "Учёт запасов")
+}
+
+' === Внешние системы ===
+System_Ext(mobile_app, "Мобильное приложение", "Flutter", "Для операторов")
+System_Ext(web_portal, "Веб-портал", "React", "Для сотрудников офиса")
+System_Ext(corporate_erp, "Корпоративная ERP", "1С:Агро", "Финансы, склад, кадры")
+
+' === Связи внутри центрального сервера ===
+Rel(api_gateway, auth_service, "Проверяет токены", "HTTP")
+Rel(api_gateway, farm_manager, "Маршрутизирует запросы", "HTTP/gRPC")
+Rel(api_gateway, analytics_aggregator, "Маршрутизирует запросы", "HTTP/gRPC")
+Rel(api_gateway, alert_manager, "Маршрутизирует запросы", "HTTP/gRPC")
+Rel(farm_manager, central_db, "Читает/пишет", "SQL")
+Rel(analytics_aggregator, central_metric_db, "Читает/пишет", "HTTP/SQL")
+Rel(video_analytics_engine, video_storage, "Сохраняет записи", "S3")
+Rel(video_analytics_engine, event_store, "Публикует события детекции", "Kafka Protocol")
+Rel(iot_controller, event_store, "Публикует/потребляет команды и телеметрию", "Kafka Protocol")
+Rel(alert_manager, event_store, "Потребляет события для оповещений", "Kafka Protocol")
+Rel(alert_manager, notification_gateway, "Передаёт уведомления", "gRPC")
+
+' === Связи ферма → центр ===
+Rel(thin_gateway, api_gateway, "Передаёт видеопоток", "RTMP/WebRTC/HTTPS", "Интернет (4G/Спутник)")
+Rel(thin_gateway, iot_controller, "Передаёт телеметрию", "MQTT/HTTPS", "Интернет (4G/Спутник)")
+Rel(iot_controller, thin_gateway, "Отправляет команды управления", "MQTT/HTTPS", "Интернет (4G/Спутник)")
+
+' === Связи внутри фермы ===
+Rel(ip_cameras, thin_gateway, "Передают видеопоток", "RTSP")
+Rel(thin_gateway, feeders, "Передаёт команды", "Modbus TCP/MQTT")
+Rel(thin_gateway, drinkers, "Передаёт команды", "Modbus TCP/MQTT")
+Rel(thin_gateway, water_sensors, "Опрашивает датчики", "Modbus TCP/OPC UA")
+Rel(thin_gateway, stockroom_system, "Опрашивает остатки", "REST/HTTP")
+
+' === Связи с внешними системами ===
+Rel(mobile_app, api_gateway, "API запросы", "HTTPS/OAuth2")
+Rel(web_portal, api_gateway, "API запросы", "HTTPS/OAuth2")
+Rel(notification_gateway, mobile_app, "Push-уведомления", "FCM/APNS/WebSocket")
+Rel(analytics_aggregator, corporate_erp, "Синхронизация метрик", "REST/SOAP")
+
+@enduml
