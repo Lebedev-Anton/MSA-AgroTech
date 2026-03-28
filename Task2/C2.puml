@@ -1,0 +1,66 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' === Центральный сервер (Cloud) ===
+System_Boundary(cloud, "Центральный сервер (Cloud)") {
+    Container(api_gateway, "API Gateway", "Nginx", "Маршрутизация, аутентификация, rate limiting")
+    Container(auth_service, "Auth Service", "Keycloak/Spring Security", "Управление ролями, OAuth2/JWT")
+    
+    Container_Boundary(core_services, "Core Services") {
+        Container(farm_manager, "Farm Manager", "Kotlin/Spring Boot", "Управление фермами, агентами, конфигурация")
+        Container(analytics_aggregator, "Analytics Aggregator", "Kotlin/Spring Boot", "Агрегация метрик, формирование отчётов")
+    }
+    
+    ContainerDb(central_db, "Central Database", "PostgreSQL", "Фермы, пользователи, роли, конфигурации")
+    ContainerDb(central_metric_db, "Metrics", "ClickHouse", "Агрегированные метрики со всех ферм")
+    
+    Container(event_store, "Event Store", "Kafka", "Поток событий, аудит, синхронизация с агентами")
+    
+}
+
+' === Ферма N (Edge) ===
+System_Boundary(farm, "Ферма N (Edge)") {
+    Container(edge_gateway, "Edge Gateway", "Nginx", "Локальный API gateway")
+    
+    Container_Boundary(edge_services, "Edge Services") {
+        Container(agent_orchestrator, "Agent Orchestrator", "Python", "Оркестрация, бизнес-логика, кэширование")
+        Container(sync_service, "Sync Service", "Python", "Синхронизация с центральным сервером")
+        Container(local_alert_service, "Local Alert Service", "Python", "Локальное оповещение оператора")
+    }
+    
+    Container(video_analytics_engine, "Video Analytics Engine", "Python + PyTorch", "Анализ видеопотока, детекция событий")
+    Container(iot_adapter, "IoT Adapter", "Python", "Адаптация протоколов IoT устройств")
+    
+    Container_Ext(ip_cameras, "IP Cameras", "RTSP/H.264", "Видеонаблюдение")
+    Container_Ext(feeders, "Кормушки", "Modbus/MQTT", "Управление кормлением")
+    Container_Ext(drinkers, "Поилки", "Modbus/MQTT", "Управление поением")
+    Container_Ext(water_sensors, "Датчики воды", "Modbus/OPC UA", "Мониторинг фильтрации")
+    Container(stockroom_system, "Складская система", "REST/1C API", "Учёт запасов")
+}
+
+
+' === Связи внутри центрального сервера ===
+Rel(api_gateway, auth_service, "Проверяет токены", "HTTP")
+Rel(api_gateway, farm_manager, "Маршрутизирует запросы", "HTTP/gRPC")
+Rel(farm_manager, central_db, "Читает/пишет", "SQL")
+Rel(analytics_aggregator, central_metric_db, "Читает/пишет", "")
+Rel(event_store, farm_manager, "Публикует события изменений", "Kafka Protocol")
+
+' === Связи между центральным сервером и фермой ===
+Rel(sync_service, event_store, "Синхронизирует события (pull/push)", "gRPC/Kafka", "Интернет")
+Rel(agent_orchestrator, sync_service, "Передаёт данные на синхронизацию", "gRPC")
+Rel(farm_manager, sync_service, "Передаёт данные на синхронизацию", "gRPC")
+
+' === Связи внутри фермы ===
+Rel(edge_gateway, agent_orchestrator, "Маршрутизирует запросы", "HTTP/gRPC")
+Rel(agent_orchestrator, video_analytics_engine, "Управляет потоками, получает события", "gRPC/REST")
+Rel(agent_orchestrator, iot_adapter, "Отправляет команды, получает статусы", "MQTT")
+Rel(agent_orchestrator, local_alert_service, "Передаёт события оповещений", "gRPC")
+Rel(video_analytics_engine, ip_cameras, "Получает видеопоток", "RTSP")
+Rel(iot_adapter, feeders, "Управление", "Modbus TCP/MQTT")
+Rel(iot_adapter, drinkers, "Управление", "Modbus TCP/MQTT")
+Rel(iot_adapter, water_sensors, "Опрос", "OPC UA/Modbus")
+Rel(agent_orchestrator, stockroom_system, "Опрашивает остатки", "REST/HTTP")
+
+
+@enduml

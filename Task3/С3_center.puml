@@ -1,0 +1,37 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+
+title C3 Диаграмма: Компоненты Farm Manager
+
+System_Ext(api_gateway, "API Gateway", "Nginx")
+System_Ext(sync_service, "Sync Service (Edge)", "gRPC клиент")
+System_Ext(event_store, "Event Store", "Kafka")
+
+ContainerDb(central_db, "Central Database", "PostgreSQL", "Схемы: farms, users, configs")
+
+System_Boundary(farm_manager_container, "Farm Manager (Spring Boot)") {
+    Component(rest_controller, "REST Controller", "Spring MVC", "Принимает команды от API Gateway (CRUD ферм, агентов)")
+    Component(grpc_server, "gRPC Server", "gRPC", "Обслуживает синхронизацию с Edge-сервисами")
+    Component(farm_service, "Farm Service", "Kotlin", "Бизнес-логика управления фермами и агентами")
+    Component(config_service, "Configuration Service", "Kotlin", "Управление конфигурациями агентов (алгоритмы, расписания)")
+    Component(event_publisher, "Event Publisher", "Kafka Producer", "Публикует изменения (FarmUpdated, ConfigChanged)")
+    Component(repo_layer, "Repository Layer", "Spring Data JPA", "Абстракция доступа к БД")
+}
+
+Rel(api_gateway, rest_controller, "HTTP POST/GET", "JSON")
+Rel(sync_service, grpc_server, "gRPC", "SyncFarmData")
+
+Rel(rest_controller, farm_service, "вызывает")
+Rel(grpc_server, farm_service, "вызывает")
+Rel(grpc_server, config_service, "вызывает")
+
+Rel(farm_service, repo_layer, "CRUD операций")
+Rel(config_service, repo_layer, "CRUD операций")
+Rel(farm_service, event_publisher, "публикует события")
+Rel(config_service, event_publisher, "публикует события")
+
+Rel(repo_layer, central_db, "JDBC", "SQL")
+Rel(event_publisher, event_store, "отправляет", "Kafka Protocol")
+
+@enduml
